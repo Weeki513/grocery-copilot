@@ -1,0 +1,46 @@
+{
+  "name": "grocery-copilot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "catalog:generate": "tsx scripts/generate-catalog.ts",
+    "catalog:validate": "tsx scripts/validate-catalog.ts",
+    "catalog:report": "tsx scripts/catalog-report.ts",
+    "db:migrate": "tsx scripts/migrate-db.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "evals": "vitest run evals"
+  },
+  "dependencies": {
+    "@langchain/langgraph": "1.4.7",
+    "better-sqlite3": "12.11.1",
+    "clsx": "2.1.1",
+    "lucide-react": "0.545.0",
+    "next": "16.2.10",
+    "openai": "6.47.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3",
+    "zustand": "5.0.14"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.10",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "postcss": "8.5.10",
+    "esbuild": "0.28.1"
+  }
+}

@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+.next/
+out/
+coverage/
+
+# Local secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local generated database
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+
+# Tooling and OS files
+.DS_Store
+*.tsbuildinfo
+npm-debug.log*
