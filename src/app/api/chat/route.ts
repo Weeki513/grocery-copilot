@@ -5,10 +5,11 @@ import { minimumInStockPrice } from "@/server/catalog/repository";
 import { emitInspector, inspectorEvent, registerEmitter, unregisterEmitter } from "@/server/ai/events";
 import { groceryGraph } from "@/server/ai/graph";
 import { AiConfigurationError, primaryModel, routeBusinessRequest } from "@/server/ai/openai";
-import { AiBudgetLimitError, acquireChatLease, chatProtectionConfig } from "@/server/ai/usage-guard";
+import { AiBudgetLimitError, AiProtectionUnavailableError, acquireChatLease, chatProtectionConfig } from "@/server/ai/usage-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function frame(type: string, payload: unknown) { return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`; }
 
@@ -23,14 +24,14 @@ function errorDetails(error: unknown) {
   };
 }
 
-function safeRecipe(value: unknown): RecipePlan | undefined {
+export function safeRecipe(value: unknown): RecipePlan | undefined {
   if (!value || typeof value !== "object") return undefined;
   const recipe = value as Partial<RecipePlan>;
   if (!recipe.title?.en || !recipe.title.ru || !recipe.summary?.en || !recipe.summary.ru || !Array.isArray(recipe.steps?.en) || !Array.isArray(recipe.steps.ru)) return undefined;
   return {
     title: { en: String(recipe.title.en).slice(0, 120), ru: String(recipe.title.ru).slice(0, 120) },
     summary: { en: String(recipe.summary.en).slice(0, 260), ru: String(recipe.summary.ru).slice(0, 260) },
-    servings: Math.max(1, Math.min(20, Number(recipe.servings || 1))),
+    servings: Math.max(1, Math.min(500, Number(recipe.servings || 1))),
     cookingTimeMinutes: Math.max(0, Math.min(300, Number(recipe.cookingTimeMinutes || 0))),
     steps: { en: recipe.steps.en.slice(0, 8).map((step) => String(step).slice(0, 240)), ru: recipe.steps.ru.slice(0, 8).map((step) => String(step).slice(0, 240)) },
   };
@@ -92,10 +93,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid_json", message: "The request body must be valid JSON." }, { status: 400 });
   }
   if (Buffer.byteLength(JSON.stringify(body), "utf8") > protection.maxBodyBytes) return Response.json({ error: "request_too_large", message: "The request is too large." }, { status: 413 });
-  if (!body.sessionId || !body.message?.trim() || !["en", "ru"].includes(body.locale || "")) {
+  if (typeof body.sessionId !== "string" || body.sessionId.length > 120 || typeof body.message !== "string" || !body.message.trim() || !["en", "ru"].includes(body.locale || "")) {
     return Response.json({ error: "Invalid sessionId, locale, or message." }, { status: 400 });
   }
-  const sessionId = body.sessionId;
+  const sessionId = body.sessionId.trim();
   const requestId = crypto.randomUUID();
   const locale = body.locale as Locale;
   const message = body.message.trim();
@@ -105,13 +106,18 @@ export async function POST(request: Request) {
   const lease = await acquireChatLease(request, sessionId);
   if (!lease.allowed) {
     const message = locale === "ru"
-      ? lease.reason === "daily_limit" ? "Дневной лимит AI для этой демо-версии исчерпан. Попробуйте завтра."
+      ? lease.reason === "protection_unconfigured" ? "Публичная защита AI ещё не настроена. Добавьте общий Redis-лимитер и повторите запрос."
+        : lease.reason === "protection_unavailable" ? "Общий лимитер AI временно недоступен. Повторите через несколько секунд."
+        : lease.reason === "daily_limit" ? "Дневной лимит AI для этой демо-версии исчерпан. Попробуйте завтра."
         : lease.reason === "concurrency_limit" ? "Сейчас выполняется слишком много AI-запросов. Повторите через несколько секунд."
           : "Слишком много запросов. Повторите через минуту."
-      : lease.reason === "daily_limit" ? "The daily AI limit for this demo has been reached. Try again tomorrow."
+      : lease.reason === "protection_unconfigured" ? "Public AI protection is not configured yet. Add a shared Redis limiter and try again."
+        : lease.reason === "protection_unavailable" ? "The shared AI limiter is temporarily unavailable. Try again shortly."
+        : lease.reason === "daily_limit" ? "The daily AI limit for this demo has been reached. Try again tomorrow."
         : lease.reason === "concurrency_limit" ? "Too many AI requests are running right now. Try again in a few seconds."
           : "Too many requests. Try again in a minute.";
-    return Response.json({ error: "usage_protection", message }, { status: 429, headers: { "Retry-After": String(lease.retryAfterSeconds) } });
+    const protectionUnavailable = lease.reason === "protection_unconfigured" || lease.reason === "protection_unavailable";
+    return Response.json({ error: protectionUnavailable ? "shared_usage_protection_unavailable" : "usage_protection", message }, { status: protectionUnavailable ? 503 : 429, headers: { "Retry-After": String(lease.retryAfterSeconds) } });
   }
   const conversation = Array.isArray(body.conversation) ? body.conversation
     .filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
@@ -196,13 +202,16 @@ export async function POST(request: Request) {
       } catch (error) {
         const configuration = error instanceof AiConfigurationError;
         const budgetLimit = error instanceof AiBudgetLimitError;
+        const protectionUnavailable = error instanceof AiProtectionUnavailableError;
         console.error("[api/chat] workflow failed", { requestId, sessionId, ...errorDetails(error) });
         const message = budgetLimit
           ? (locale === "ru" ? "Дневной лимит AI достигнут. Новые AI-запросы временно остановлены для защиты API-баланса." : "The daily AI limit has been reached. New AI requests are paused to protect the API budget.")
           : configuration
-          ? (locale === "ru" ? "Добавьте OPENAI_API_KEY в файл .env и перезапустите приложение." : "Add OPENAI_API_KEY to .env and restart the app.")
+          ? (locale === "ru" ? "Добавьте OPENAI_API_KEY в файл .env.local и перезапустите приложение." : "Add OPENAI_API_KEY to .env.local and restart the app.")
+          : protectionUnavailable
+          ? (locale === "ru" ? "Общий лимитер AI временно недоступен. Повторите запрос позже." : "The shared AI limiter is temporarily unavailable. Try again later.")
           : (locale === "ru" ? "AI-сервис временно недоступен. Проверьте модель и повторите запрос." : "The AI service is temporarily unavailable. Check the configured model and try again.");
-        send("error", { error: budgetLimit ? "ai_budget_limit" : configuration ? "missing_api_key" : "ai_request_failed", message, requestId });
+        send("error", { error: budgetLimit ? "ai_budget_limit" : configuration ? "missing_api_key" : protectionUnavailable ? "shared_usage_protection_unavailable" : "ai_request_failed", message, requestId });
       } finally {
         unregisterEmitter(sessionId);
         lease.release();
