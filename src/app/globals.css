@@ -42,3 +42,5 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .catalog-proof{background:linear-gradient(135deg,#fff,#edf7fd)}
 .catalog-load-more{border-color:#c8dfed}
 @media(max-width:850px){.demo-shell{background:#edf4f9}}
+.cart-checkout-cta{margin:12px 14px 20px;padding-bottom:8px}.cart-checkout-cta .primary-button{width:100%;padding:0 15px}
+.inspector-footer{gap:10px;flex-wrap:wrap}.inspector-links{display:flex;align-items:center;gap:5px}.inspector-links a{color:var(--green);font-weight:750;text-decoration:none}.inspector-links a:hover{text-decoration:underline}.inspector-links a+a{border-left:1px solid var(--line);padding-left:9px}

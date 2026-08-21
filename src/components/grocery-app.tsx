@@ -24,5 +24,5 @@ export function GroceryApp({ initialLocale, products, categories }: { initialLoc
   if (screen === "checkout") content = <CheckoutScreen/>;
   if (screen === "product") content = <ProductScreen/>;
   if (screen === "profile") content = <ProfileScreen/>;
-  return <div className="demo-shell"><section className="app-stage"><div className="stage-brand"><span className="brand-mark">G</span><div><strong>Grocery Copilot</strong><small>Grocery delivery, thoughtfully done</small></div></div><PhoneShell>{content}</PhoneShell><p className="stage-caption">Local product prototype · 10,000 indexed SKU</p></section><Inspector/></div>;
+  return <div className="demo-shell"><section className="app-stage"><div className="stage-brand"><span className="brand-mark">G</span><div><strong>Grocery Copilot</strong><small>Grocery delivery, thoughtfully done</small></div></div><PhoneShell>{content}</PhoneShell><p className="stage-caption">Engineering demo · 10,000 indexed SKU</p></section><Inspector/></div>;
 }

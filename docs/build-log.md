@@ -1,16 +1,41 @@
-# CHANGELOG.md — полная история Grocery Copilot
+# Grocery Copilot build log
 
-Это narrative engineering changelog, а не только список релизов по SemVer. Он предназначен как первичный материал для постов, кейс-стади и pitch deck: фиксирует продуктовые решения, ошибки, способы обнаружения, причины и проверки.
+Это narrative engineering log, а не список релизов по SemVer. Он сохраняет продуктовые решения, ошибки, способы обнаружения, причины и проверки как материал для кейс-стади и pitch deck.
 
 ## Как читать временные метки
 
 - Часовой пояс всей истории: Asia/Tbilisi, UTC+4.
 - `точно` — время взято из имени пользовательского скриншота, runtime trace или filesystem timestamp.
 - `интервал` — изменение происходило между двумя подтверждёнными артефактами.
-- В проекте нет Git history, поэтому ранние изменения восстановлены по исходным файлам, времени модификации, скриншотам и последовательности тестов.
+- Ранние записи относятся к периоду до первой публикации репозитория и были восстановлены по исходным файлам, времени модификации, скриншотам и последовательности тестов.
 - Одинаковый пользовательский запрос может дать другой рецепт и цену из-за модели; серверные инварианты должны оставаться одинаковыми.
 
 ---
+
+## 2026-08-21
+
+### Demo checkout CTA visibility
+
+- Кнопка перехода к фиктивному оформлению теперь находится в потоке корзины и не перекрывается нижней навигацией телефона.
+- Подпись desktop demo больше не называет приложение только локальным прототипом; checkout по-прежнему явно сообщает, что платёж и доставка не создаются.
+- Футер AI Inspector получил ссылки на `pivnev.design` и GitHub-репозиторий проекта.
+
+### Public release preparation
+
+- Внутренние root-инструкции удалены, а продуктовые требования и narrative build log перенесены в `docs/`.
+- Добавлены PolyForm Strict License 1.0.0, чистый clone setup через `.env.local` и Vercel deployment notes.
+- Checkout получил bounded JSON handling, а continuation сохраняет recipes до 500 servings.
+
+## 2026-08-17
+
+### Vercel non-commercial engineering demo hardening
+
+- Production build теперь сначала создаёт детерминированный 10 000-SKU SQLite/FTS5 artifact с `CATALOG_BUILD=1`; Vercel runtime автоматически открывает его read-only и не пытается создавать каталог в immutable filesystem.
+- `ensureCatalog()` проверяет count/version read-only artifact и падает явно при повреждённом build output вместо тихой регенерации.
+- Checkout сохранил server-authoritative SKU/stock/price validation, но убрал server-side `INSERT` в SQLite; confirmation остаётся фиктивным и browser-local.
+- `/api/chat` получил `maxDuration = 60` и fail-closed поведение в Vercel при отсутствии или недоступности общего Upstash Redis limiter.
+- UI и README явно называют checkout fictional demo flow; добавлены regression tests для build/runtime catalog modes.
+- Проверка после изменения: 85 тестов, typecheck и lint прошли; production build и read-only runtime smoke подтверждают готовность инженерного demo-режима.
 
 ## 2026-07-15
 
@@ -42,7 +67,7 @@
 
 Создан Next.js-проект `grocery-copilot`, установлены React 19, LangGraph, OpenAI SDK, Zod, Zustand, SQLite driver и тестовый стек.
 
-По отдельному запросу создан локальный `.env`, куда пользователь может вставить API key. Также добавлены:
+Для локальной разработки предусмотрен ignored `.env.local`, куда можно добавить API key. Также добавлены:
 
 - `.env.example` с `OPENAI_API_KEY`, Luna, Terra и SQLite URL;
 - `.gitignore`, исключающий секреты, generated DB, `.next`, `node_modules` и TypeScript build info.
@@ -184,7 +209,7 @@ Conversation identity — часть корректности AI-продукт�
 
 #### Оставшийся долг
 
-Ручное уменьшение количества в result card пока не запускает повторную server validation. Это зафиксировано в `AGENTS.md`.
+Ручное уменьшение количества в result card пока не запускает повторную server validation. Это ограничение теперь отражено в разделе Current limitations в `README.md`.
 
 ---
 
@@ -680,14 +705,14 @@ Browser checks:
 ## Текущее техническое состояние на момент документа
 
 - Catalog DB: 10 000 SKU.
-- Tests: 77 passed / 6 files.
+- Tests: 89 passed / 9 files.
 - Typecheck: passed.
 - ESLint: passed.
 - Production build: passed.
 - Live SSE: passed.
 - Browser UI: passed без overlay/console errors.
-- Git history: отсутствует.
-- Полный список текущих ограничений и next-agent runbook: `AGENTS.md`.
+- Git history: репозиторий опубликован в `Weeki513/grocery-copilot`.
+- Актуальные ограничения и публичный запуск описаны в `README.md`.
 
 ## Известный незакрытый долг
 
@@ -697,6 +722,5 @@ Browser checks:
 4. Nutrition/calorie sufficiency не валидируется отдельным кодом.
 5. Market price realism не проверяется внешними данными: каталог синтетический.
 6. Нет durable server-side chat/checkpoint storage.
-7. README содержит устаревшее описание MemorySaver/resume.
 
 Эти пункты намеренно оставлены видимыми: они показывают границу между убедительным прототипом и production-системой и могут стать отдельными слайдами roadmap.

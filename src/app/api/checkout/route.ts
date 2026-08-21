@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { getDb } from "@/server/db";
-import { createCatalogSchema } from "@/server/catalog/schema";
 import { getProductsByIds } from "@/server/catalog/repository";
 
 const CheckoutSchema = z.object({
@@ -12,8 +10,19 @@ const CheckoutSchema = z.object({
   items: z.array(z.object({ productId: z.string(), quantity: z.number().int().positive().max(50) })).min(1).max(100),
 });
 
+const MAX_CHECKOUT_BODY_BYTES = 50_000;
+
 export async function POST(request: Request) {
-  const parsed = CheckoutSchema.safeParse(await request.json());
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_CHECKOUT_BODY_BYTES) return Response.json({ error: "Checkout request is too large" }, { status: 413 });
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid checkout details" }, { status: 400 });
+  }
+  if (Buffer.byteLength(JSON.stringify(body) || "", "utf8") > MAX_CHECKOUT_BODY_BYTES) return Response.json({ error: "Checkout request is too large" }, { status: 413 });
+  const parsed = CheckoutSchema.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Invalid checkout details" }, { status: 400 });
   const products = getProductsByIds(parsed.data.items.map((item) => item.productId));
   const map = new Map(products.map((product) => [product.id, product]));
@@ -27,8 +36,5 @@ export async function POST(request: Request) {
   const total = Math.round((subtotal + deliveryFee) * 100) / 100;
   const id = `GC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
   const createdAt = new Date().toISOString();
-  const db = getDb(); createCatalogSchema(db);
-  db.prepare(`INSERT INTO orders (id, created_at, locale, address, slot, payment_last4, comment, subtotal, delivery_fee, total, items_json, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`).run(id, createdAt, parsed.data.locale, parsed.data.address, parsed.data.slot, parsed.data.paymentLast4, parsed.data.comment || null, subtotal, deliveryFee, total, JSON.stringify(parsed.data.items));
   return Response.json({ id, createdAt, total, status: "confirmed", address: parsed.data.address, slot: parsed.data.slot });
 }

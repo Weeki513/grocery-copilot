@@ -1,26 +1,151 @@
 # Grocery Copilot
 
-Grocery Copilot is a local, pitch-ready grocery delivery prototype. A customer describes a meal in natural language; a single LangGraph workflow interprets the request, plans a recipe, retrieves a compact shortlist from 10,000 stored SKU, asks OpenAI to select product IDs, validates the selection on the server, repairs it when necessary, and builds a normal editable cart.
+> An AI-native grocery shopping experience that turns natural-language meal requests into a validated, editable cart — with a live inspector showing how the agent makes each decision.
 
-The desktop experience intentionally has two halves:
+**Live demo:** [Vercel demo — deployment URL to be added](#deployment-notes) · **Source:** [Weeki513/grocery-copilot](https://github.com/Weeki513/grocery-copilot) · **Docs:** [product spec](docs/product-spec.md) · [build log](docs/build-log.md)
 
-- a consumer grocery app presented in an iPhone-like frame;
-- a live AI Inspector showing safe operational events from the real workflow.
+Grocery Copilot is a portfolio-grade product experience combining product design, interaction design, AI orchestration, and deterministic backend systems. It is a complete grocery flow — catalog, assistant, editable selection, cart, and fictional checkout — rather than an LLM chat wrapper.
 
-English and Russian are supported throughout the store, assistant, checkout, and Inspector. All prices use USD.
+## Demo media
 
-## Requirements
+<!--
+Add the presentation assets when they are ready:
+- docs/assets/grocery-copilot-hero.webp — desktop hero showing the grocery app and AI Inspector
+- docs/assets/grocery-copilot-demo.mp4 or docs/assets/grocery-copilot-demo.gif — short end-to-end interaction
+- docs/assets/ai-inspector.webp — close-up of a real workflow run
+Do not commit secrets, customer data, or API responses containing private information.
+-->
 
-- Node.js 20.9 or newer (Node.js 24 is tested)
-- npm 10 or newer
-- an OpenAI API key with access to `gpt-5.6-luna` and `gpt-5.6-terra`
+<p><em>Media placeholder — add the named assets above when the final demo capture is ready.</em></p>
 
-PostgreSQL and Docker are not required for the local demo. The permitted SQLite mode is used with FTS5 and an isolated repository layer so the storage adapter can later be replaced without changing the graph, validation, or UI.
+## What the product does
 
-## Quick start
+A user can ask for a meal or grocery task in English or Russian, including servings, budget, preparation time, allergies, exclusions, and dietary requirements. The assistant:
+
+- interprets the goal and chooses the appropriate grocery capability;
+- plans a recipe when a recipe is needed;
+- searches a deterministic catalog of exactly 10,000 synthetic SKU through bilingual SQLite FTS5 retrieval;
+- selects real product IDs from a compact shortlist;
+- validates stock, allergens, dietary evidence, package capacity, quantity, and budget on the server;
+- repairs or explains an unavailable selection instead of inventing a product; and
+- presents an editable result that only enters the main cart after the user confirms it.
+
+The desktop layout pairs an iPhone-like grocery application with an AI Inspector. The Inspector shows safe, real workflow events: route selection, retrieval, model choice, validation, repairs, fallback use, latency, and candidate counts.
+
+## Why this project is interesting
+
+The difficult part is not producing a plausible recipe. It is turning an ambiguous natural-language goal into a trustworthy shopping action while keeping the experience fast, understandable, and editable.
+
+This project demonstrates:
+
+- product thinking about capability boundaries and honest refusal;
+- UX that makes AI output reviewable rather than silently mutating a cart;
+- a real LangGraph workflow with structured OpenAI Responses API outputs;
+- a server-authoritative boundary where the model suggests and deterministic code decides; and
+- a pitchable interface that exposes useful operational evidence without exposing prompts, hidden reasoning, or secrets.
+
+## Key product and engineering decisions
+
+| Decision | Why it matters |
+| --- | --- |
+| Capability before keyword matching | A household task is resolved by verified product purpose, not by an unrelated word match. |
+| Compact retrieval | The model sees at most 12 candidates per ingredient group, never the full 10,000-SKU catalog. |
+| Structured outputs | Zod-backed schemas restrict model output to product IDs, quantities, mappings, confidence, and short reasons. |
+| Server-authoritative cart math | Product names, prices, stock, capacity, safety evidence, and totals are reread from SQLite. |
+| Editable confirmation | An AI result is a proposal; the user explicitly chooses “Add all to cart.” |
+| Fictional checkout | The public demo validates the flow without pretending to take payment, schedule delivery, or persist orders. |
+| Bilingual by design | EN/RU copy, search terms, recipes, and product metadata are supported throughout the experience. |
+
+## Architecture
+
+The request path is deliberately split between language understanding and deterministic business logic:
+
+```text
+POST /api/chat
+  → body and usage gates
+  → business router
+  → deterministic currency and budget gate
+  → catalog / clarify / unsupported direct response
+  → meal LangGraph workflow when planning is required
+```
+
+The meal graph is:
+
+```text
+START
+  → interpret_request
+  → clarification required?
+      yes → ask_clarification → END
+      no  → plan_recipe
+              → normalize_ingredients
+              → retrieve_products
+              → select_products or fallback_model
+              → validate_selection
+                  valid      → build_cart
+                  repairable → repair_selection → validate_selection
+                  repeated   → fallback_model → validate_selection
+              → compose_user_response → END
+```
+
+Clarification currently ends the graph invocation. The next client request sends recent conversation context again; there is no claim of durable LangGraph checkpoint/resume storage.
+
+## Reliability and deterministic safeguards
+
+- Product IDs must exist in SQLite and must have been present in the server-generated shortlist.
+- Stock, duplicate selections, allergens, exclusions, verified dietary tags, package capacity, and required ingredients are checked server-side.
+- Prices and totals come from the database, not from model output.
+- Quantities are scaled from per-serving requirements and checked against package capacity and stock.
+- Budget and currency gates run before an expensive recipe graph when a request is already impossible.
+- The chat endpoint bounds request size, message length, per-IP/session frequency, concurrency, daily requests, model calls, and output tokens.
+- Local development can use process-local limits; Vercel fails closed with HTTP 503 unless shared Upstash Redis protection is configured.
+- Checkout rereads current products and validates quantities but returns only a fictional browser-local confirmation.
+
+## AI workflow and Inspector
+
+The Inspector is backed by the same in-process events used by the live SSE response. It reports safe operational summaries such as:
+
+- the selected business route and capability;
+- the current graph node and completed stages;
+- shortlist and candidate counts;
+- model, latency, and approximate token information;
+- validation errors, repair decisions, and fallback transitions; and
+- the prepared cart selection.
+
+It intentionally omits system prompts, API keys, hidden reasoning, sensitive headers, and full internal payloads.
+
+## Tech stack
+
+- Next.js 16 App Router, React 19, TypeScript
+- LangGraph.js and OpenAI Responses API structured outputs
+- Zod, Zustand, and Lucide React
+- SQLite with `better-sqlite3` and bilingual FTS5 retrieval
+- Vitest, deterministic catalog/evaluation fixtures, and ESLint
+- Vercel-compatible build-time catalog artifact with read-only runtime access
+
+## Tests and evals
+
+The repository includes deterministic coverage for catalog scale and quality, bilingual retrieval, business capabilities, currencies, serving groups, package arithmetic, schema boundaries, selection validation and repair, usage protection, and Vercel catalog modes.
+
+`evals/cases.ts` contains 20 stable scenario cases across normal requests, constraints, stock changes, budgets, and complex fallback paths. The eval command validates this manifest without making paid model calls in CI.
+
+Run the full local checks with:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run evals
+npm run catalog:validate
+npm run build
+```
+
+## Run locally
+
+Requirements: Node.js 20.9+ and npm 10+.
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run db:migrate
 npm run catalog:generate
 npm run catalog:validate
@@ -29,177 +154,40 @@ npm run dev
 
 Open [http://localhost:3000/en](http://localhost:3000/en) or [http://localhost:3000/ru](http://localhost:3000/ru).
 
-The checked-in `.env.example` documents the configuration. A local ignored `.env` is already created for development:
+Browsing the catalog and using the product UI does not require an OpenAI key. Add `OPENAI_API_KEY` to `.env.local` to enable live assistant requests; the key is read only by server code and is never sent to the browser.
 
-```dotenv
-OPENAI_API_KEY=
-OPENAI_PRIMARY_MODEL=gpt-5.6-luna
-OPENAI_FALLBACK_MODEL=gpt-5.6-terra
-CHAT_RATE_LIMIT_PER_MINUTE=5
-CHAT_DAILY_REQUEST_LIMIT=50
-CHAT_MAX_CONCURRENT_REQUESTS=2
-CHAT_MAX_MESSAGE_CHARS=600
-CHAT_MAX_BODY_BYTES=50000
-OPENAI_MAX_CALLS_PER_DAY=120
-OPENAI_MAX_OUTPUT_TOKENS=1600
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-DATABASE_URL="file:./data/grocery-copilot.db"
-```
+### Environment variables
 
-Insert the API key after `OPENAI_API_KEY=` and restart the dev server. The key is read only by server code, is never returned to the browser, and is excluded by `.gitignore`.
+- `OPENAI_API_KEY` is required for live AI requests and optional for catalog-only development.
+- `OPENAI_PRIMARY_MODEL`, `OPENAI_FALLBACK_MODEL`, and the `CHAT_*` / `OPENAI_MAX_*` variables are optional tuning controls with conservative local defaults.
+- `DATABASE_URL` is optional for the default local SQLite path. `CATALOG_READ_ONLY=1` is useful for an explicit local read-only smoke test.
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are optional locally, but both are required for public Vercel chat protection.
+- `GEL_PER_USD` and `RUB_PER_USD` are optional fallback FX settings for those currencies.
 
-If the key is absent or a configured model is unavailable, the store and catalog remain usable and the assistant shows a clear configuration error. It does not substitute a prerecorded AI answer.
+`.env.local` is ignored by Git. Keep `.env.example` tracked and empty of credentials.
 
-### Public deployment API protection
+## Deployment notes
 
-The chat endpoint has server-side protection enabled by default: per-IP and per-session rate limiting, a daily request cap, a concurrent-request cap, request/message size limits, a daily OpenAI-call cap, and a maximum output-token limit. The API key is never exposed to the browser. Tune the limits through the variables above before publishing; the defaults are intentionally conservative for a public demo.
+This repository is prepared for a non-commercial Vercel engineering demo. A production URL is not claimed until a real Vercel deployment reaches `READY` and passes a live smoke test.
 
-Without `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, counters are process-local for local development. For a multi-instance deployment, set those two server-only variables to make IP/session and daily AI caps shared across instances, and configure hosting/provider-level spend limits as a second safety layer. If the shared store is temporarily unavailable, the app falls back to process-local protection so the service remains usable.
+- `npm run build` first generates the deterministic 10,000-SKU SQLite/FTS5 artifact through the `prebuild` script.
+- Vercel runtime opens that artifact read-only and fails loudly if its count or catalog version is invalid; it does not regenerate or mutate SQLite in serverless execution.
+- Checkout performs server-side product/stock/total validation and returns a fictional confirmation. No order is written to the server filesystem.
+- `/api/chat` is a Node.js SSE route with a 60-second maximum duration. In Vercel, missing or unavailable shared Redis protection returns HTTP 503 instead of weakening the limits to a per-instance fallback.
+- Configure `OPENAI_API_KEY`, model names, all chat/model caps, and both Upstash variables in Vercel Production environment variables. Add provider-level OpenAI spend and rate limits as a second safety layer.
+- Vercel Hobby should be treated as hosting for a personal, non-commercial showcase. Authentication, payment, delivery, and durable server-side user/order storage are intentionally out of scope.
 
-## Useful commands
+## Current limitations
 
-```bash
-npm run dev                 # Next.js development server
-npm run build               # production build
-npm run lint                # ESLint
-npm run typecheck           # strict TypeScript check
-npm test                    # deterministic unit/integration tests
-npm run evals               # 20-case reproducible eval manifest checks
-npm run catalog:generate    # create catalog unless exactly 10,000 SKU exist
-npm run catalog:generate -- --force
-npm run catalog:validate    # distribution and data integrity checks
-npm run catalog:report      # catalog counts and quality report
-```
+- Chat/session persistence is browser-local; clarification is continued with client conversation rather than a durable server checkpoint.
+- Partial-audience parsing currently supports one vegetarian or vegan subgroup; more complex audience splits depend on the model.
+- Manually lowering a quantity in the AI result updates the client preview but does not rerun server validation until a later server action.
+- The catalog and prices are deterministic synthetic fixtures, not a live retailer feed.
+- Product visuals use emoji, and checkout is fictional.
+- Paid live model scoring is intentionally excluded from CI.
 
-## Architecture
+## License
 
-### Application
+The source is available under the [PolyForm Strict License 1.0.0](https://polyformproject.org/licenses/strict/1.0.0). It permits noncommercial inspection, evaluation, research, and testing, but does not grant permission to distribute the source or make derivative works as another product. Commercial use or other permissions require authorization from the licensor.
 
-- Next.js App Router and React 19 render the server entry route and interactive client shell.
-- Zustand persists language, chat history, session ID, cart, and the last local order in the browser.
-- Route Handlers provide catalog search, product lookup, SSE chat streaming, and checkout.
-- SQLite stores products and local orders. FTS5 indexes English/Russian names, descriptions, brands, ingredients, and synonyms.
-
-### Catalog
-
-`scripts/generate-catalog.ts` creates exactly 10,000 products with seed `513`. The category counts match `spec.md` exactly. Product families, brands, packaging, sizes, pricing, descriptions, ingredients, allergens, storage rules, origin, availability, and popularity are procedural rather than LLM-generated.
-
-The generator adds reproducible content-management defects: missing descriptions, weights present only in names, empty brands, near-duplicates, incomplete ingredients, stale previous prices, stock-flag mismatches, and similar imperfections. Critical data damage is kept below the specification threshold.
-
-The SQLite database lives at `data/grocery-copilot.db` and is ignored by Git. It is not regenerated on every app start. If the file is missing or has the wrong count, the local repository bootstraps it once.
-
-### Retrieval
-
-For each normalized ingredient, the server:
-
-1. expands bilingual model-supplied search terms;
-2. uses FTS5 across the stored catalog;
-3. filters availability, maximum per-item price, allergens, and exclusions;
-4. ranks by FTS relevance and popularity;
-5. keeps at most 12 products per ingredient.
-
-The ordinary shortlist is therefore well below 150 products. The model never receives the 10,000-product catalog.
-
-### LangGraph workflow
-
-The compiled `StateGraph` is the real orchestrator:
-
-```text
-START → interpret_request → needs_clarification?
-  yes → ask_clarification → interrupt / resume → plan_recipe
-  no  → plan_recipe
-       → normalize_ingredients
-       → retrieve_products
-       → select_products (or fallback_model for complex requests)
-       → validate_selection
-            valid      → build_cart
-            repairable → repair_selection → validate_selection
-            repeated   → fallback_model → validate_selection
-       → compose_user_response → END
-```
-
-`MemorySaver` checkpoints graph state by `sessionId`, allowing a clarification interrupt to resume with the next user message. This is appropriate for a single-process local demo; a production deployment should replace it with a durable database checkpointer.
-
-Every node emits an Inspector event with a safe input/output summary, duration, model, candidate count, and token estimate when available. Events never contain the system prompt, API key, hidden reasoning, or full product payloads.
-
-### OpenAI
-
-The server uses the OpenAI Responses API and `responses.parse` with Zod-backed structured outputs. Luna performs request interpretation/recipe planning and ordinary product selection. Terra is used only for complex requests or repeated validation failure. Sol is never configured.
-
-The strict product selection schema accepts only:
-
-- `productId`;
-- package quantity;
-- ingredient key;
-- confidence;
-- short reason;
-- unresolved ingredient IDs and the fallback flag.
-
-Names, current prices, stock, totals, and discounts are reloaded from SQLite by `productId`.
-
-### Server validation
-
-Deterministic code checks that every product exists, was in the shortlist, is in stock, does not exceed inventory, covers the required amount, contains no forbidden allergen or excluded ingredient, is not duplicated, covers every required ingredient, and stays within budget. Totals are calculated only from database prices.
-
-The repair node rebuilds failed selections from verified candidates and chooses sufficient package quantities. Retry count and graph recursion limit prevent infinite loops. Terra receives the compact shortlist rather than a restarted full workflow.
-
-## Tests and evals
-
-The default test suite verifies:
-
-- exactly 10,000 stored SKU and all 17 category counts;
-- real bilingual FTS retrieval;
-- controlled data-quality flags;
-- rejection of invented product IDs;
-- deterministic allergen rejection;
-- database-authoritative pricing;
-- strict structured selection output.
-
-`evals/cases.ts` contains the required 20 stable scenarios: 8 ordinary, 4 constrained, 3 stock-change, 3 budget, and 2 complex fallback cases. The manifest is designed for repeatable live evaluation once an API key is configured; CI-safe tests validate its distribution and expectations without making paid model calls.
-
-## Demo notes
-
-- Change language from the top-right control on the home screen. The cart and chat remain intact.
-- Suggested prompts are localized and send real AI requests.
-- Click any Inspector graph node or event to inspect safe input/output metadata.
-- AI-selected products are not silently inserted into the cart; the customer confirms with “Add all to cart”.
-- Checkout uses the fictional card ending in `4242` and creates a local order with a generated number.
-
-## Troubleshooting
-
-### Assistant says the API key is missing
-
-Add a key to `.env`, keep the variable name exactly `OPENAI_API_KEY`, and restart `npm run dev`.
-
-### Model unavailable or permission error
-
-Confirm the project has access to the model IDs in `.env`. The requested defaults are `gpt-5.6-luna` and `gpt-5.6-terra`.
-
-### Catalog count is not 10,000
-
-```bash
-npm run catalog:generate -- --force
-npm run catalog:validate
-```
-
-### SQLite native module fails to install
-
-Use a supported current Node.js release and reinstall dependencies:
-
-```bash
-rm -rf node_modules
-npm install
-```
-
-### Reset local demo state
-
-Delete `data/grocery-copilot.db`, rerun the migration and catalog commands, then clear the `ladle-grocery-state` entry from browser local storage if you also want to reset cart and chat history.
-
-## Demo limitations
-
-- Checkpoints are process-local rather than durable across server restarts.
-- Semantic embeddings are intentionally optional; FTS5 is the primary retrieval path.
-- Checkout creates a local fictional order and performs no payment.
-- Product visuals use emoji as required by the catalog schema.
-- The offline eval command validates the scenario contract; paid live model scoring is intentionally not run in CI.
+The [LICENSE](LICENSE) file is authoritative; this paragraph is only a plain-language summary.

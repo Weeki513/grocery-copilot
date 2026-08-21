@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { AiBudgetLimitError, acquireChatLease, chatProtectionConfig, resetUsageGuardForTests, withModelCallBudget } from "@/server/ai/usage-guard";
 
-const guardEnvKeys = ["CHAT_RATE_LIMIT_PER_MINUTE", "CHAT_DAILY_REQUEST_LIMIT", "CHAT_MAX_CONCURRENT_REQUESTS", "OPENAI_MAX_CALLS_PER_DAY", "CHAT_MAX_MESSAGE_CHARS", "CHAT_MAX_BODY_BYTES", "OPENAI_MAX_OUTPUT_TOKENS", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
+const guardEnvKeys = ["CHAT_RATE_LIMIT_PER_MINUTE", "CHAT_DAILY_REQUEST_LIMIT", "CHAT_MAX_CONCURRENT_REQUESTS", "OPENAI_MAX_CALLS_PER_DAY", "CHAT_MAX_MESSAGE_CHARS", "CHAT_MAX_BODY_BYTES", "OPENAI_MAX_OUTPUT_TOKENS", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "VERCEL"];
 
 function request(ip = "203.0.113.10") {
   return new Request("https://demo.example/api/chat", { headers: { "x-forwarded-for": ip } });
@@ -46,5 +46,10 @@ describe("AI usage protection", () => {
     await withModelCallBudget(async () => "first");
     await withModelCallBudget(async () => "second");
     await expect(withModelCallBudget(async () => "third")).rejects.toBeInstanceOf(AiBudgetLimitError);
+  });
+
+  it("fails closed in Vercel when shared protection is not configured", async () => {
+    process.env.VERCEL = "1";
+    expect(await acquireChatLease(request(), "public-session")).toMatchObject({ allowed: false, reason: "protection_unconfigured" });
   });
 });

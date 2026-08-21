@@ -21,6 +21,13 @@ export class AiBudgetLimitError extends Error {
   }
 }
 
+export class AiProtectionUnavailableError extends Error {
+  constructor() {
+    super("Shared AI usage protection is not available.");
+    this.name = "AiProtectionUnavailableError";
+  }
+}
+
 function positiveInt(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -117,12 +124,16 @@ function sharedDayKey(scope: string, now: number) {
 
 export type ChatLease =
   | { allowed: true; release: () => void }
-  | { allowed: false; reason: "rate_limit" | "daily_limit" | "concurrency_limit"; retryAfterSeconds: number };
+  | { allowed: false; reason: "rate_limit" | "daily_limit" | "concurrency_limit" | "protection_unconfigured" | "protection_unavailable"; retryAfterSeconds: number };
 
 export async function acquireChatLease(request: Request, sessionId: string): Promise<ChatLease> {
   const now = Date.now();
   const config = chatProtectionConfig();
   refreshDaily(now);
+  const requiresSharedProtection = process.env.VERCEL === "1";
+  if (requiresSharedProtection && !sharedStoreCredentials()) {
+    return { allowed: false, reason: "protection_unconfigured", retryAfterSeconds: 60 };
+  }
   if (daily.chatRequests >= config.dailyChatRequests) {
     return { allowed: false, reason: "daily_limit", retryAfterSeconds: Math.max(60, Math.ceil((DAY_MS - (now - daily.startedAt)) / 1_000)) };
   }
@@ -142,6 +153,9 @@ export async function acquireChatLease(request: Request, sessionId: string): Pro
     sharedIncrement(sharedMinuteKey("session", sessionId, now), 120),
     sharedIncrement(sharedDayKey("chat-requests", now), 2 * 24 * 60 * 60),
   ]);
+  if (requiresSharedProtection && sharedCounts.some((count) => count === undefined)) {
+    return { allowed: false, reason: "protection_unavailable", retryAfterSeconds: 30 };
+  }
   const sharedMinuteLimit = sharedCounts.slice(0, 2).some((count) => count !== undefined && count > config.requestsPerMinute);
   const sharedDailyLimit = sharedCounts[2] !== undefined && sharedCounts[2] > config.dailyChatRequests;
   if (sharedDailyLimit) return { allowed: false, reason: "daily_limit", retryAfterSeconds: Math.max(60, Math.ceil((DAY_MS - (now - daily.startedAt)) / 1_000)) };
@@ -166,6 +180,7 @@ export async function withModelCallBudget<T>(operation: () => Promise<T>): Promi
   const config = chatProtectionConfig();
   if (daily.modelCalls >= config.maxModelCallsPerDay) throw new AiBudgetLimitError();
   const sharedCount = await sharedIncrement(sharedDayKey("model-calls", Date.now()), 2 * 24 * 60 * 60);
+  if (process.env.VERCEL === "1" && sharedCount === undefined) throw new AiProtectionUnavailableError();
   if (sharedCount !== undefined && sharedCount > config.maxModelCallsPerDay) throw new AiBudgetLimitError();
   daily.modelCalls += 1;
   return operation();

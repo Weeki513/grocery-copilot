@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "CATALOG_BUILD=1 npm run catalog:generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

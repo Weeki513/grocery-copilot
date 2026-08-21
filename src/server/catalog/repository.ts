@@ -1,5 +1,5 @@
 import type { Product } from "@/lib/types";
-import { getDb } from "@/server/db";
+import { getDb, isCatalogReadOnly } from "@/server/db";
 import { CATALOG_VERSION, generateCatalog } from "./generator";
 import { createCatalogSchema } from "./schema";
 
@@ -31,10 +31,13 @@ export function rowToProduct(row: ProductRow): Product {
 
 export function ensureCatalog() {
   const db = getDb();
-  createCatalogSchema(db);
+  if (!isCatalogReadOnly()) createCatalogSchema(db);
   const count = (db.prepare("SELECT COUNT(*) AS count FROM products").get() as { count: number }).count;
   const version = Number((db.prepare("SELECT value FROM catalog_meta WHERE key = 'catalog_version'").get() as { value?: string } | undefined)?.value || 0);
-  if (count !== 10000 || version !== CATALOG_VERSION) generateCatalog(db, { force: true, seed: 513 });
+  if (count !== 10000 || version !== CATALOG_VERSION) {
+    if (isCatalogReadOnly()) throw new Error(`Catalog artifact is invalid: expected 10,000 SKU at version ${CATALOG_VERSION}, got ${count} at version ${version}.`);
+    generateCatalog(db, { force: true, seed: 513 });
+  }
   return db;
 }
 
