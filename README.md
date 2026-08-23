@@ -8,15 +8,7 @@ Grocery Copilot is a portfolio-grade product experience combining product design
 
 ## Demo media
 
-<!--
-Add the presentation assets when they are ready:
-- docs/assets/grocery-copilot-hero.webp — desktop hero showing the grocery app and AI Inspector
-- docs/assets/grocery-copilot-demo.mp4 or docs/assets/grocery-copilot-demo.gif — short end-to-end interaction
-- docs/assets/ai-inspector.webp — close-up of a real workflow run
-Do not commit secrets, customer data, or API responses containing private information.
--->
-
-<p><em>Media placeholder — add the named assets above when the final demo capture is ready.</em></p>
+![Grocery Copilot demo](docs/assets/grocery-copilot-demo.gif)
 
 ## What the product does
 
