@@ -215,6 +215,27 @@ describe("serving normalization", () => {
 });
 
 describe("direct catalog constraints", () => {
+  it("adds ketchup to an existing selection instead of leaving the cart unchanged", () => {
+    const existing = getProductsBySubcategory("bakery-sourdough-loaf", 1)[0];
+    const result = resolveBusinessRoute(route({
+      mode: "catalog", action: "add", capability: "food_or_meal",
+      targetFamilyIds: ["condiments-tomato-ketchup"], match: "exact",
+      goalEn: "Add ketchup", goalRu: "Добавить кетчуп",
+      explanationEn: "Ketchup was requested.", explanationRu: "Пользователь попросил кетчуп.",
+    }), "en", {
+      kind: "meal",
+      recipe: {
+        title: { en: "Chicken toast", ru: "Тост с курицей" }, summary: { en: "Toast", ru: "Тост" },
+        servings: 2, cookingTimeMinutes: 15, steps: { en: ["Assemble."], ru: ["Собрать."] },
+      },
+      items: [{ productId: existing.id, ingredientKey: "bread", quantity: 1 }],
+    });
+    expect(result).toMatchObject({ status: "completed", kind: "meal" });
+    expect(result?.items).toHaveLength(2);
+    expect(result?.items?.some((item) => item.product.subcategoryId === "condiments-tomato-ketchup")).toBe(true);
+    expect(result?.items?.some((item) => item.product.id === existing.id)).toBe(true);
+  });
+
   it("does not mutate a catalog selection above its strict budget", () => {
     const result = resolveBusinessRoute(route({ targetFamilyIds: ["dairy-whole-milk"], capability: "food_or_meal", match: "exact" }), "ru", { items: [] }, {
       amount: 1, currency: "USD", usdAmount: 1, source: "$1", provider: "native",

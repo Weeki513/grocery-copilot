@@ -101,7 +101,7 @@ export type AssistantResult = {
   error?: string;
 };
 
-export type ChatMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: string };
+export type ChatMessage = { id: string; role: "user" | "assistant"; content: string; createdAt: string; result?: AssistantResult };
 
 export type AssistantStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 

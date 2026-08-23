@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, CornerDownLeft, History, LoaderCircle, MessageSquarePlus, Plus, Send, ShieldCheck, Sparkles, Users } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import type { AssistantResult, ChatMessage, InspectorEvent } from "@/lib/types";
 import { price, t } from "@/lib/i18n";
 import { purchaseBreakdown } from "@/lib/product-quantity";
@@ -20,9 +20,18 @@ function parseSseBlock(block: string) {
   return { type, payload: JSON.parse(data) as unknown };
 }
 
+type RenderableResult = AssistantResult & {
+  recipe: NonNullable<AssistantResult["recipe"]>;
+  items: NonNullable<AssistantResult["items"]>;
+};
+
+function renderableResult(result?: AssistantResult): RenderableResult | undefined {
+  return result?.status === "completed" && result.recipe && result.items ? result as RenderableResult : undefined;
+}
+
 export function AssistantScreen() {
-  const store = useGroceryStore(); const { locale, navigate, chatSessions, messages, addMessage, sessionId, startNewChat, openChat, assistantStatus, setAssistantStatus, assistantResult, setAssistantResult, setAssistantItemQuantity, addInspectorEvent, addItems } = store; const c = t(locale);
-  const [input, setInput] = useState(""); const [detailsOpen, setDetailsOpen] = useState(false); const [view, setView] = useState<"home" | "chat" | "history">("home"); const chatScrollRef = useRef<HTMLDivElement>(null);
+  const store = useGroceryStore(); const { locale, navigate, assistantView: view, setAssistantView: setView, chatSessions, messages, addMessage, sessionId, startNewChat, openChat, assistantStatus, setAssistantStatus, assistantResult, setAssistantResult, setAssistantItemQuantity, addInspectorEvent, addItems } = store; const c = t(locale);
+  const [input, setInput] = useState(""); const [detailsOpenFor, setDetailsOpenFor] = useState<string>(); const chatScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (view !== "chat") return;
     const frame = requestAnimationFrame(() => {
@@ -59,13 +68,21 @@ export function AssistantScreen() {
         }
       }
       if (!final) throw new Error("The assistant stream ended without a result.");
-      setAssistantResult(!final.items?.length && previousResult?.items?.length ? previousResult : final); setAssistantStatus(final.status === "waiting" ? "waiting" : final.status === "completed" ? "completed" : "failed");
-      addMessage({ id: crypto.randomUUID(), role: "assistant", content: final.message, createdAt: new Date().toISOString() });
+      const displayedResult = !final.items?.length && previousResult?.items?.length ? previousResult : final;
+      setAssistantResult(displayedResult); setAssistantStatus(final.status === "waiting" ? "waiting" : final.status === "completed" ? "completed" : "failed");
+      addMessage({ id: crypto.randomUUID(), role: "assistant", content: final.message, createdAt: new Date().toISOString(), result: final.status === "completed" && final.items?.length ? displayedResult : undefined });
     } catch {
       const message = locale === "ru" ? "Не удалось подключиться к AI. Проверьте локальный сервер и повторите запрос." : "I couldn’t reach the AI service. Check the local server and try again.";
       setAssistantStatus("failed"); setAssistantResult({ status: "failed", message }); addMessage({ id: crypto.randomUUID(), role: "assistant", content: message, createdAt: new Date().toISOString() });
     }
   }
+
+  const hasAttachedResults = messages.some((message) => message.role === "assistant" && message.result?.items?.length);
+  const fallbackResultMessageId = !hasAttachedResults && assistantResult?.items?.length
+    ? [...messages].reverse().find((message) => message.role === "assistant")?.id
+    : undefined;
+  const activeResultMessageId = [...messages].reverse().find((message) => message.role === "assistant" && message.result?.items?.length)?.id
+    || fallbackResultMessageId;
 
   return <div className="screen assistant-screen">
     <header className="assistant-header"><button className="icon-button" aria-label={locale === "ru" ? "Назад" : "Back"} onClick={() => view === "home" ? navigate("home") : setView("home")}><ArrowLeft/></button><div><h1>{view === "history" ? (locale === "ru" ? "История чатов" : "Chat history") : c.assistantTitle}</h1><small>{view === "history" ? (locale === "ru" ? `${chatSessions.length} сохранено` : `${chatSessions.length} saved`) : c.assistantSub}</small></div>{view === "history" ? <span className="assistant-header-spacer"/> : <button className="assistant-history-button" disabled={assistantStatus === "running"} onClick={() => setView("history")} aria-label={locale === "ru" ? "История чатов" : "Chat history"}><History size={17}/></button>}</header>
@@ -80,17 +97,25 @@ export function AssistantScreen() {
       {chatSessions.length ? <div className="chat-history-list">{[...chatSessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((chat) => <button key={chat.id} className={chat.id === sessionId ? "active" : ""} onClick={() => { openChat(chat.id); setView("chat"); }}><span><strong>{chat.title}</strong><small>{chat.messages.length} {locale === "ru" ? "сообщений" : "messages"} · {chat.updatedAt.slice(0, 10)}</small></span><ChevronRight size={15}/></button>)}</div> : <div className="chat-history-empty"><History size={24}/><strong>{locale === "ru" ? "История пока пуста" : "No chats yet"}</strong><p>{locale === "ru" ? "Первый запрос появится здесь автоматически." : "Your first request will appear here automatically."}</p></div>}
     </div> : <>
       <div className="chat-scroll" ref={chatScrollRef}>
-        {messages.map((message) => <div key={message.id} className={`message ${message.role}`}><span>{message.content}</span></div>)}
+        {messages.map((message) => {
+          const result = message.result || (message.id === fallbackResultMessageId ? assistantResult : undefined);
+          const renderedResult = message.role === "assistant" ? renderableResult(result) : undefined;
+          const editable = message.id === activeResultMessageId;
+          const detailsOpen = detailsOpenFor === message.id;
+          return <Fragment key={message.id}>
+            <div className={`message ${message.role}`}><span>{message.content}</span></div>
+            {renderedResult ? <div className="assistant-result">
+              <div className="result-success"><span><Check size={17}/></span><div><small>{renderedResult.kind === "shopping" ? (locale === "ru" ? "ТОВАРЫ ПОДОБРАНЫ" : "PRODUCTS READY") : (locale === "ru" ? "ПОДБОР ГОТОВ" : "CART READY")}</small><strong>{renderedResult.recipe.title[locale]}</strong></div><b>{price(renderedResult.total || 0)}</b></div>
+              <div className="recipe-stats">{renderedResult.kind === "shopping" ? <span><Check size={15}/>{renderedResult.items.length} {locale === "ru" ? "тов." : "items"}</span> : <><span><Users size={15}/>{renderedResult.recipe.servings}</span><span><Clock3 size={15}/>{renderedResult.recipe.cookingTimeMinutes} min</span></>}<span><ShieldCheck size={15}/>{locale === "ru" ? "Проверено" : "Checked"}</span></div>
+              <p className="recipe-summary">{renderedResult.recipe.summary[locale]}</p>
+              <div className="selected-products"><h3>{c.selection} · {renderedResult.items.reduce((sum, item) => sum + item.quantity, 0)} {locale === "ru" ? "уп." : "packs"}</h3>{renderedResult.items.map((item) => <div className="selected-row" key={item.product.id}><span className="selected-placeholder" aria-hidden/><div className="selected-copy"><strong>{item.product.localeData[locale].name}</strong><small>{purchaseBreakdown(item.product, item.quantity, locale)}</small><small>{price(item.product.price)} × {item.quantity} = {price(item.quantity * item.product.price)}</small></div><div className="assistant-item-actions"><b>{price(item.quantity * item.product.price)}</b>{editable ? <QuantityControl compact quantity={item.quantity} removeAtOne onDecrease={() => setAssistantItemQuantity(item.product.id, item.quantity - 1)} onIncrease={() => setAssistantItemQuantity(item.product.id, item.quantity + 1)} disabledIncrease={item.quantity >= item.product.stock}/> : null}</div></div>)}</div>
+              <button className="primary-button add-all" disabled={!renderedResult.items.length} onClick={() => { addItems(renderedResult.items); navigate("cart"); }}><Plus size={18}/>{c.addAll}<span>{price(renderedResult.total || 0)}</span></button>
+              <button className="recipe-toggle" onClick={() => setDetailsOpenFor(detailsOpen ? undefined : message.id)}>{renderedResult.kind === "shopping" ? (locale === "ru" ? "Что дальше" : "Next steps") : c.recipe}<ChevronDown className={detailsOpen ? "rotated" : ""} size={17}/></button>
+              {detailsOpen ? <ol className="recipe-steps">{renderedResult.recipe.steps[locale].map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol> : null}
+            </div> : null}
+          </Fragment>;
+        })}
         {assistantStatus === "running" ? <div className="working-card"><div className="working-head"><LoaderCircle className="spin" size={18}/><strong>{c.thinking}</strong></div><div className="working-track"><span/></div><small>{locale === "ru" ? "Проверяю наличие, упаковки и ограничения…" : "Checking availability, pack sizes, and constraints…"}</small></div> : null}
-        {assistantResult?.status === "completed" && assistantResult.recipe && assistantResult.items ? <div className="assistant-result">
-          <div className="result-success"><span><Check size={17}/></span><div><small>{assistantResult.kind === "shopping" ? (locale === "ru" ? "ТОВАРЫ ПОДОБРАНЫ" : "PRODUCTS READY") : (locale === "ru" ? "ПОДБОР ГОТОВ" : "CART READY")}</small><strong>{assistantResult.recipe.title[locale]}</strong></div><b>{price(assistantResult.total || 0)}</b></div>
-          <div className="recipe-stats">{assistantResult.kind === "shopping" ? <span><Check size={15}/>{assistantResult.items.length} {locale === "ru" ? "тов." : "items"}</span> : <><span><Users size={15}/>{assistantResult.recipe.servings}</span><span><Clock3 size={15}/>{assistantResult.recipe.cookingTimeMinutes} min</span></>}<span><ShieldCheck size={15}/>{locale === "ru" ? "Проверено" : "Checked"}</span></div>
-          <p className="recipe-summary">{assistantResult.recipe.summary[locale]}</p>
-          <div className="selected-products"><h3>{c.selection} · {assistantResult.items.reduce((sum, item) => sum + item.quantity, 0)} {locale === "ru" ? "уп." : "packs"}</h3>{assistantResult.items.map((item) => <div className="selected-row" key={item.product.id}><span className="selected-placeholder" aria-hidden/><div className="selected-copy"><strong>{item.product.localeData[locale].name}</strong><small>{purchaseBreakdown(item.product, item.quantity, locale)}</small><small>{price(item.product.price)} × {item.quantity} = {price(item.quantity * item.product.price)}</small></div><div className="assistant-item-actions"><b>{price(item.quantity * item.product.price)}</b><QuantityControl compact quantity={item.quantity} removeAtOne onDecrease={() => setAssistantItemQuantity(item.product.id, item.quantity - 1)} onIncrease={() => setAssistantItemQuantity(item.product.id, item.quantity + 1)} disabledIncrease={item.quantity >= item.product.stock}/></div></div>)}</div>
-          <button className="primary-button add-all" disabled={!assistantResult.items.length} onClick={() => { addItems(assistantResult.items!); navigate("cart"); }}><Plus size={18}/>{c.addAll}<span>{price(assistantResult.total || 0)}</span></button>
-          <button className="recipe-toggle" onClick={() => setDetailsOpen(!detailsOpen)}>{assistantResult.kind === "shopping" ? (locale === "ru" ? "Что дальше" : "Next steps") : c.recipe}<ChevronDown className={detailsOpen ? "rotated" : ""} size={17}/></button>
-          {detailsOpen ? <ol className="recipe-steps">{assistantResult.recipe.steps[locale].map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol> : null}
-        </div> : null}
       </div>
       <form className="chat-composer" onSubmit={(event: FormEvent) => { event.preventDefault(); submit(input, "continue"); }}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={assistantStatus === "waiting" ? (locale === "ru" ? "Ответьте на вопрос…" : "Answer the question…") : c.input}/><button disabled={!input.trim() || assistantStatus === "running"} aria-label={c.send}><Send size={18}/></button></form>
     </>}

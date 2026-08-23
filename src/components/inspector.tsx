@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Circle, Clock3, LoaderCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { InspectorEvent, InspectorNode } from "@/lib/types";
 import { t } from "@/lib/i18n";
 import { useGroceryStore } from "@/store/grocery-store";
@@ -30,15 +30,14 @@ function EventIcon({ event }: { event?: InspectorEvent }) {
   return <Circle size={10} />;
 }
 
-export function Inspector() {
-  const { locale, inspectorEvents: events, assistantStatus } = useGroceryStore();
+export function Inspector({ active }: { active: boolean }) {
+  const { locale, inspectorEvents: storedEvents, assistantStatus: storedStatus } = useGroceryStore();
+  const events = active ? storedEvents : [];
+  const assistantStatus = active ? storedStatus : "idle";
   const c = t(locale);
   const [selected, setSelected] = useState<InspectorEvent>();
-  const latest = useMemo(() => {
-    const map = new Map<InspectorNode, InspectorEvent>();
-    for (const event of events) map.set(event.node, event);
-    return map;
-  }, [events]);
+  const latest = new Map<InspectorNode, InspectorEvent>();
+  for (const event of events) latest.set(event.node, event);
   const completed = graphNodes.filter((node) => ["completed", "skipped"].includes(latest.get(node.id)?.status || "")).length;
   const shortlist = [...events].reverse().find((event) => event.output && "shortlist" in event.output)?.output?.shortlist as number | undefined;
   const model = [...events].reverse().find((event) => event.model)?.model;

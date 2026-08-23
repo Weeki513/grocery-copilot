@@ -91,6 +91,7 @@ export const FAMILIES: Record<string, Family[]> = {
     { en: "Smoked Paprika", ru: "Копчёная паприка", emoji: "🌶️", terms: ["paprika", "паприка", "spice"], tags: ["vegan"], unit: "g" },
     { en: "Ground Black Pepper", ru: "Молотый чёрный перец", emoji: "🧂", terms: ["black pepper", "ground pepper", "peppercorn", "чёрный перец", "черный перец"], tags: ["vegan"], unit: "g" },
     { en: "Tomato Salsa", ru: "Томатная сальса", emoji: "🌶️", terms: ["salsa", "taco", "сальса"], tags: ["vegan"], unit: "g" },
+    { en: "Tomato Ketchup", ru: "Томатный кетчуп", emoji: "🍅", terms: ["ketchup", "tomato ketchup", "кетчуп", "томатный кетчуп"], tags: ["vegan"], unit: "g" },
     { en: "Classic Mayonnaise", ru: "Классический майонез", emoji: "🥫", terms: ["mayonnaise", "mayo", "майонез"], allergens: ["egg"], unit: "ml" },
     { en: "Sea Salt", ru: "Морская соль", emoji: "🧂", terms: ["salt", "соль"], tags: ["vegan"], unit: "g" },
   ],

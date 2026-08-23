@@ -5,13 +5,14 @@ import { persist } from "zustand/middleware";
 import type { AssistantResult, AssistantStatus, CartItem, ChatMessage, ChatSession, InspectorEvent, Locale, Order, Product } from "@/lib/types";
 
 export type Screen = "home" | "catalog" | "assistant" | "cart" | "checkout" | "product" | "profile";
+export type AssistantView = "home" | "chat" | "history";
 
 type Store = {
   locale: Locale; screen: Screen; previousScreen: Screen; cart: Record<string, CartItem>; selectedProduct?: Product;
-  catalogAutofocus: boolean;
+  catalogAutofocus: boolean; assistantView: AssistantView;
   chatSessions: ChatSession[]; messages: ChatMessage[]; inspectorEvents: InspectorEvent[]; assistantStatus: AssistantStatus;
   assistantResult?: AssistantResult; sessionId: string; order?: Order;
-  setLocale: (locale: Locale) => void; navigate: (screen: Screen) => void; selectProduct: (product: Product) => void;
+  setLocale: (locale: Locale) => void; navigate: (screen: Screen) => void; setAssistantView: (view: AssistantView) => void; selectProduct: (product: Product) => void;
   openCatalogWithFocus: () => void; consumeCatalogAutofocus: () => void;
   startNewChat: () => string; openChat: (id: string) => void;
   addItem: (product: Product, quantity?: number, reason?: string) => void; addItems: (items: CartItem[]) => void;
@@ -42,10 +43,15 @@ function updateActiveChat(state: Store, update: Partial<ChatSession>) {
 }
 
 export const useGroceryStore = create<Store>()(persist<Store, [], [], PersistedStore>((set) => ({
-  locale: "en", screen: "home", previousScreen: "home", cart: {}, catalogAutofocus: false, chatSessions: [], messages: [], inspectorEvents: [], assistantStatus: "idle",
+  locale: "en", screen: "home", previousScreen: "home", cart: {}, catalogAutofocus: false, assistantView: "home", chatSessions: [], messages: [], inspectorEvents: [], assistantStatus: "idle",
   sessionId: crypto.randomUUID(),
   setLocale: (locale) => set({ locale }),
-  navigate: (screen) => set((state) => ({ previousScreen: state.screen, screen })),
+  navigate: (screen) => set((state) => ({
+    previousScreen: state.screen,
+    screen,
+    assistantView: screen === "assistant" && state.screen !== "assistant" ? "home" : state.assistantView,
+  })),
+  setAssistantView: (assistantView) => set({ assistantView }),
   openCatalogWithFocus: () => set((state) => ({ previousScreen: state.screen, screen: "catalog", catalogAutofocus: true })),
   consumeCatalogAutofocus: () => set({ catalogAutofocus: false }),
   startNewChat: () => {
@@ -84,7 +90,10 @@ export const useGroceryStore = create<Store>()(persist<Store, [], [], PersistedS
       : state.assistantResult.items.map((item) => item.product.id === id ? { ...item, quantity: Math.min(quantity, item.product.stock) } : item);
     const total = Math.round(items.reduce((sum, item) => sum + item.product.price * item.quantity, 0) * 100) / 100;
     const assistantResult = { ...state.assistantResult, items, total };
-    return { assistantResult, chatSessions: updateActiveChat(state, { assistantResult }) };
+    const latestResultMessageId = [...state.messages].reverse().find((message) => message.role === "assistant" && message.result)?.id
+      || [...state.messages].reverse().find((message) => message.role === "assistant")?.id;
+    const messages = state.messages.map((message) => message.id === latestResultMessageId ? { ...message, result: assistantResult } : message);
+    return { assistantResult, messages, chatSessions: updateActiveChat(state, { assistantResult, messages }) };
   }),
   addMessage: (message) => set((state) => {
     const messages = [...state.messages, message];

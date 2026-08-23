@@ -14,7 +14,7 @@ import { ProductScreen } from "./product-screen";
 import { ProfileScreen } from "./profile-screen";
 
 export function GroceryApp({ initialLocale, products, categories }: { initialLocale: Locale; products: Product[]; categories: Category[] }) {
-  const { locale, screen } = useGroceryStore();
+  const { locale, screen, assistantView } = useGroceryStore();
   useEffect(() => { useGroceryStore.setState({ locale: initialLocale }); }, [initialLocale]);
   useEffect(() => { const next = `/${locale}`; if (window.location.pathname !== next) window.history.replaceState(null, "", next); }, [locale]);
   let content = <HomeScreen products={products} categories={categories}/>;
@@ -24,5 +24,6 @@ export function GroceryApp({ initialLocale, products, categories }: { initialLoc
   if (screen === "checkout") content = <CheckoutScreen/>;
   if (screen === "product") content = <ProductScreen/>;
   if (screen === "profile") content = <ProfileScreen/>;
-  return <div className="demo-shell"><section className="app-stage"><PhoneShell>{content}</PhoneShell></section><Inspector/></div>;
+  const inspectorActive = screen === "assistant" && assistantView === "chat";
+  return <div className="demo-shell"><section className="app-stage"><PhoneShell>{content}</PhoneShell></section><Inspector key={inspectorActive ? "assistant" : "default"} active={inspectorActive}/></div>;
 }

@@ -75,6 +75,7 @@ export const PACKAGING_PROFILES: Record<string, readonly number[]> = {
   "Smoked Paprika": [30, 50, 75, 100],
   "Ground Black Pepper": [30, 50, 75, 100],
   "Tomato Salsa": [200, 300, 500],
+  "Tomato Ketchup": [250, 450, 500, 750, 1000],
   "Classic Mayonnaise": [250, 500, 750],
   "Sea Salt": [250, 500, 1000],
 

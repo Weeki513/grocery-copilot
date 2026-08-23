@@ -5,7 +5,7 @@ import { FAMILIES, type Family } from "./families";
 import { packageSizesForFamily } from "./packaging";
 import { createCatalogSchema } from "./schema";
 
-export const CATALOG_VERSION = 7;
+export const CATALOG_VERSION = 8;
 
 const BRANDS = ["Northfield", "Daymark", "Common Table", "Blue Harbor", "Greenhouse", "Morrow", "Juniper", "Field & Fork", "Noma", "Riverside"];
 const ORIGINS = ["Italy", "Spain", "United States", "Greece", "Turkey", "France", "Netherlands", "Mexico"];
