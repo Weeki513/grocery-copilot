@@ -7,7 +7,7 @@ export type Family = {
   allergens?: string[];
   tags?: string[];
   roles?: Array<"protein">;
-  unit?: "g" | "ml" | "piece";
+  unit: "g" | "ml" | "piece";
 };
 
 export const FAMILIES: Record<string, Family[]> = {

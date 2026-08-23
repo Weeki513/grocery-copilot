@@ -2,15 +2,14 @@ import type Database from "better-sqlite3";
 import type { Product } from "@/lib/types";
 import { CATEGORIES, CATEGORY_TOTAL } from "./taxonomy";
 import { FAMILIES, type Family } from "./families";
+import { packageSizesForFamily } from "./packaging";
 import { createCatalogSchema } from "./schema";
 
-export const CATALOG_VERSION = 6;
+export const CATALOG_VERSION = 7;
 
 const BRANDS = ["Northfield", "Daymark", "Common Table", "Blue Harbor", "Greenhouse", "Morrow", "Juniper", "Field & Fork", "Noma", "Riverside"];
 const ORIGINS = ["Italy", "Spain", "United States", "Greece", "Turkey", "France", "Netherlands", "Mexico"];
 const VARIANTS = ["Classic", "Organic", "Everyday", "Select", "Farmhouse", "Original", "Premium", "Simple"];
-const WEIGHTS_G = [80, 100, 125, 150, 180, 200, 250, 300, 350, 400, 450, 500, 750, 1000];
-const VOLUMES_ML = [200, 250, 330, 500, 750, 1000, 1500];
 
 function mulberry32(seed: number) {
   return () => {
@@ -60,12 +59,12 @@ function productDescription(family: Family, categoryId: string, index: number) {
   return { en, ru };
 }
 
-function packageFor(family: Family, index: number, random: () => number) {
+function packageFor(family: Family, familyVariantIndex: number) {
+  const sizes = packageSizesForFamily(family);
+  const amount = sizes[familyVariantIndex % sizes.length];
   if (family.unit === "piece") {
-    const quantity = [1, 2, 4, 6, 10, 12][index % 6];
-    return { packageQuantity: quantity, netWeight: undefined, weightUnit: undefined, suffixEn: `${quantity} pc`, suffixRu: `${quantity} шт` } as const;
+    return { packageQuantity: amount, netWeight: undefined, weightUnit: undefined, suffixEn: `${amount} pc`, suffixRu: `${amount} шт` } as const;
   }
-  const amount = family.unit === "ml" ? pick(VOLUMES_ML, random) : pick(WEIGHTS_G, random);
   const unit = amount >= 1000 ? (family.unit === "ml" ? "l" : "kg") : family.unit;
   const display = amount >= 1000 ? amount / 1000 : amount;
   return {
@@ -79,10 +78,12 @@ function packageFor(family: Family, index: number, random: () => number) {
 
 export function createProduct(categoryId: string, categoryIndex: number, globalIndex: number, seed = 513): Product {
   const random = mulberry32(seed + globalIndex * 9973);
-  const family = FAMILIES[categoryId][categoryIndex % FAMILIES[categoryId].length];
-  const variant = VARIANTS[Math.floor(categoryIndex / FAMILIES[categoryId].length) % VARIANTS.length];
+  const familyCount = FAMILIES[categoryId].length;
+  const family = FAMILIES[categoryId][categoryIndex % familyCount];
+  const familyVariantIndex = Math.floor(categoryIndex / familyCount);
+  const variant = VARIANTS[familyVariantIndex % VARIANTS.length];
   const brand = globalIndex % 41 === 0 ? undefined : pick(BRANDS, random);
-  const pack = packageFor(family, categoryIndex, random);
+  const pack = packageFor(family, familyVariantIndex);
   const priceProfile: Record<string, [number, number]> = {
     seafood: [6, 6], meat: [4, 5], produce: [.9, 2.6], pantry: [.9, 2.8],
     condiments: [1.4, 3.4], dairy: [1.8, 3.8], bakery: [1.2, 2.5], frozen: [1.7, 3.8],

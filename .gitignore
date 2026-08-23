@@ -20,3 +20,4 @@ data/*.db-wal
 .DS_Store
 *.tsbuildinfo
 npm-debug.log*
+.vercel

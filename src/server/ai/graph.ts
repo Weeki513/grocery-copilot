@@ -4,6 +4,7 @@ import { formatBaseQuantity, productCapacity, productCapacityUnit } from "@/lib/
 import { scalePerServingQuantity } from "@/server/business/quantities";
 import { getProductsByIds } from "@/server/catalog/repository";
 import { normalizeDietaryTags, productAllowedForConstraints, retrieveForIngredients } from "@/server/catalog/retrieval";
+import { canonicalUnitForIngredient } from "@/server/catalog/units";
 import { repairSelection, validateSelection } from "@/server/validation/selection";
 import { emitInspector, inspectorEvent } from "./events";
 import { fallbackModel, interpretAndPlan, primaryModel, selectProducts } from "./openai";
@@ -67,7 +68,7 @@ function normalizeIngredients(state: GroceryAgentState) {
   const totalServings = state.recipe?.servings || state.interpretedRequest?.servings || 2;
   const servingGroups = state.interpretedRequest?.servingGroups || [];
   const ingredients: IngredientRequirement[] = (state.interpretationBundle?.ingredients || []).map((item) => {
-    const scaled = scalePerServingQuantity(item.quantityPerServing, item.servingGroupIds, totalServings, servingGroups);
+    const scaled = scalePerServingQuantity(item.quantityPerServing, item.servingGroupIds, totalServings, servingGroups, item.unit);
     return {
       key: item.key, displayName: { en: item.nameEn, ru: item.nameRu }, quantity: scaled.quantity, unit: item.unit, required: item.required,
       quantityPerServing: scaled.quantityPerServing, servingsCovered: scaled.servingsCovered,
@@ -77,6 +78,16 @@ function normalizeIngredients(state: GroceryAgentState) {
   });
   events.push(finishEvent(state, "normalize_ingredients", started, "Ingredients normalized", "Ингредиенты рассчитаны", `${ingredients.length} ingredient requirements generated.`, `Сформировано требований: ${ingredients.length}.`, { output: { count: ingredients.length, units: [...new Set(ingredients.map((item) => item.unit))] } }));
   return { ingredientRequirements: ingredients, inspectorEvents: events };
+}
+
+function unitMismatchFeedback(state: GroceryAgentState) {
+  const mismatches = state.ingredientRequirements.flatMap((item) => {
+    const expected = canonicalUnitForIngredient({ nameEn: item.displayName.en, nameRu: item.displayName.ru, searchTerms: item.searchTerms });
+    return expected && expected !== item.unit ? [`${item.displayName.en}: use ${expected}, not ${item.unit}`] : [];
+  });
+  return mismatches.length
+    ? `The previous ingredient plan used incompatible catalog units: ${mismatches.join("; ")}. Keep the intended ingredient families, correct each unit to the canonical catalog unit, and choose a realistic per-person quantity in that unit.`
+    : undefined;
 }
 
 function retrieveProducts(state: GroceryAgentState) {
@@ -92,7 +103,7 @@ function retrieveProducts(state: GroceryAgentState) {
   const groups = result.groups.map((group) => {
     const current = state.currentSelection.find((item) => item.ingredientKey === group.ingredientKey);
     const product = current ? existingProducts.get(current.productId) : undefined;
-    if (!product || !productAllowedForConstraints(product, constraints)) return group;
+    if (!product || !productAllowedForConstraints(product, constraints) || productCapacityUnit(product) !== group.unit) return group;
     return { ...group, products: [product, ...group.products.filter((candidate) => candidate.id !== product.id)].slice(0, 12) };
   });
   const requiredKeys = new Set(state.ingredientRequirements.filter((item) => item.required).map((item) => item.key));
@@ -109,11 +120,16 @@ async function repairPlan(state: GroceryAgentState) {
   const budget = state.interpretedRequest?.budget;
   const failureFeedback = budgetExceeded
     ? `The verified cart cost $${state.total.toFixed(2)} against a strict $${(budget || 0).toFixed(2)} ceiling. Choose a different, substantially cheaper meal with at most 2–4 required purchases. Prefer inexpensive proteins and omit optional pantry staples.`
-    : undefined;
-  const { data, tokens } = await interpretAndPlan(state.userRequest, state.locale, state.conversation, { unavailableIngredients, failureFeedback, forcePlan: true, budgetConstraint: state.budgetConstraint });
+    : unitMismatchFeedback(state);
+  const unitMismatchKeys = new Set(state.ingredientRequirements.filter((item) => {
+    const expected = canonicalUnitForIngredient({ nameEn: item.displayName.en, nameRu: item.displayName.ru, searchTerms: item.searchTerms });
+    return expected && expected !== item.unit;
+  }).map((item) => item.key));
+  const genuinelyUnavailable = state.missingIngredientKeys.filter((key) => !unitMismatchKeys.has(key)).map((key) => state.ingredientRequirements.find((item) => item.key === key)?.displayName[state.locale] || key);
+  const { data, tokens } = await interpretAndPlan(state.userRequest, state.locale, state.conversation, { unavailableIngredients: genuinelyUnavailable, failureFeedback, forcePlan: true, budgetConstraint: state.budgetConstraint });
   if (!data.recipe) throw new Error("The catalog-grounded replan did not produce a recipe.");
-  const detailEn = budgetExceeded ? `Rebuilt the meal for a $${(budget || 0).toFixed(2)} ceiling.` : `Replaced ${unavailableIngredients.length} unavailable required ingredients with stocked families.`;
-  const detailRu = budgetExceeded ? `Блюдо пересобрано под лимит $${(budget || 0).toFixed(2)}.` : `Недоступных обязательных ингредиентов заменено: ${unavailableIngredients.length}.`;
+  const detailEn = budgetExceeded ? `Rebuilt the meal for a $${(budget || 0).toFixed(2)} ceiling.` : unitMismatchKeys.size ? `Corrected ${unitMismatchKeys.size} incompatible ingredient units.` : `Replaced ${genuinelyUnavailable.length} unavailable required ingredients with stocked families.`;
+  const detailRu = budgetExceeded ? `Блюдо пересобрано под лимит $${(budget || 0).toFixed(2)}.` : unitMismatchKeys.size ? `Исправлено несовместимых единиц: ${unitMismatchKeys.size}.` : `Недоступных обязательных ингредиентов заменено: ${genuinelyUnavailable.length}.`;
   events.push(finishEvent(state, "repair_plan", started, "Plan changed to satisfy constraints", "План изменён под ограничения", detailEn, detailRu, { model: primaryModel(), tokens, input: { unavailableIngredients, budget, previousTotal: state.total, failureCodes: state.validationErrors.map((error) => error.code) }, output: { recipe: data.recipe.titleEn, requiredIngredients: data.ingredients.filter((item) => item.required).length } }));
   return {
     interpretationBundle: data, interpretedRequest: data.interpretedRequest,
@@ -128,6 +144,7 @@ export function preserveCurrentSelection(state: Pick<GroceryAgentState, "current
     const requirement = state.ingredientRequirements.find((item) => item.key === current.ingredientKey);
     const product = state.candidateGroups.find((group) => group.ingredientKey === current.ingredientKey)?.products.find((candidate) => candidate.id === current.productId);
     if (!requirement || !product) continue;
+    if (productCapacityUnit(product) !== requirement.unit) continue;
     const minimumQuantity = Math.max(1, Math.ceil(requirement.quantity / productCapacity(product)));
     const quantity = Math.max(current.quantity, minimumQuantity);
     if (quantity > product.stock) continue;

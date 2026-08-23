@@ -1,4 +1,5 @@
 import type { IngredientRequirement, Product } from "@/lib/types";
+import { productCapacityUnit } from "@/lib/product-quantity";
 import { searchProducts } from "./repository";
 
 export type CandidateGroup = { ingredientKey: string; requiredQuantity: number; unit: string; required: boolean; products: Product[] };
@@ -64,7 +65,7 @@ export function retrieveForIngredients(requirements: IngredientRequirement[], co
       ...constraints,
       requiredDietaryTags: [...new Set([...(constraints.requiredDietaryTags || []), ...(requirement.requiredDietaryTags || [])])],
     };
-    const filtered = initial.filter((product) => productAllowedForConstraints(product, requirementConstraints));
+    const filtered = initial.filter((product) => productAllowedForConstraints(product, requirementConstraints) && productCapacityUnit(product) === requirement.unit);
     const specificTerms = [...new Set([...requirement.searchTerms, requirement.displayName.en, requirement.displayName.ru]
       .map((term) => term.trim().toLowerCase()).filter((term) => term.length > 1))]
       .sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length);

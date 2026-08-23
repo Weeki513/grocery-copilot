@@ -5,10 +5,12 @@ import type { BusinessRoute } from "@/server/ai/schemas";
 import { clearFxCacheForTests, parseBudgetInput, resolveBudgetConstraint } from "@/server/business/budget";
 import { parseServingGroups } from "@/server/business/audience";
 import { parseRequestedServings } from "@/server/business/servings";
-import { scalePerServingQuantity } from "@/server/business/quantities";
+import { normalizeScaledQuantity, scalePerServingQuantity } from "@/server/business/quantities";
 import { catalogCapabilities, validatedFamilies } from "@/server/business/capabilities";
 import { resolveBusinessRoute } from "@/server/business/resolve-request";
 import { getProductsBySubcategory } from "@/server/catalog/repository";
+import { catalogPlanningContext } from "@/server/catalog/planning-context";
+import { canonicalUnitForIngredient } from "@/server/catalog/units";
 
 function route(overrides: Partial<BusinessRoute>): BusinessRoute {
   return {
@@ -160,6 +162,16 @@ describe("budget normalization", () => {
 });
 
 describe("serving normalization", () => {
+  it("grounds ingredient units in catalog families before pack selection", () => {
+    const context = catalogPlanningContext("en");
+    expect(context.units).toContainEqual({ name: "Ripe Avocado", unit: "piece" });
+    expect(context.units).toContainEqual({ name: "Whole Milk", unit: "ml" });
+    expect(context.units).toContainEqual({ name: "Basmati Rice", unit: "g" });
+    expect(canonicalUnitForIngredient({ nameEn: "avocado", nameRu: "авокадо", searchTerms: ["ripe avocado"] })).toBe("piece");
+    expect(canonicalUnitForIngredient({ nameEn: "whole milk", nameRu: "молоко", searchTerms: ["milk"] })).toBe("ml");
+    expect(canonicalUnitForIngredient({ nameEn: "rice", nameRu: "рис", searchTerms: ["basmati rice"] })).toBe("g");
+  });
+
   it.each([
     ["Собери ужин на 25 человек", 25],
     ["Make dinner for 40 people", 40],
@@ -176,7 +188,7 @@ describe("serving normalization", () => {
   });
 
   it("scales per-serving ingredient amounts for the whole party", () => {
-    expect(scalePerServingQuantity(160, ["all"], 50, [])).toEqual({
+    expect(scalePerServingQuantity(160, ["all"], 50, [], "g")).toEqual({
       quantity: 8000,
       quantityPerServing: 160,
       servingsCovered: 50,
@@ -188,9 +200,17 @@ describe("serving normalization", () => {
       { id: "standard", servings: 20, dietaryPreferences: [] },
       { id: "vegetarian", servings: 10, dietaryPreferences: ["vegetarian"] },
     ];
-    expect(scalePerServingQuantity(180, ["standard"], 30, groups).quantity).toBe(3600);
-    expect(scalePerServingQuantity(150, ["vegetarian"], 30, groups).quantity).toBe(1500);
-    expect(scalePerServingQuantity(80, ["all"], 30, groups).quantity).toBe(2400);
+    expect(scalePerServingQuantity(180, ["standard"], 30, groups, "g").quantity).toBe(3600);
+    expect(scalePerServingQuantity(150, ["vegetarian"], 30, groups, "g").quantity).toBe(1500);
+    expect(scalePerServingQuantity(80, ["all"], 30, groups, "g").quantity).toBe(2400);
+  });
+
+  it("snaps piece totals near whole numbers without hiding meaningful fractions", () => {
+    expect(scalePerServingQuantity(0.33, ["all"], 3, [], "piece").quantity).toBe(1);
+    expect(normalizeScaledQuantity(1.98, "piece")).toBe(2);
+    expect(normalizeScaledQuantity(3.01, "piece")).toBe(3);
+    expect(normalizeScaledQuantity(1.5, "piece")).toBe(1.5);
+    expect(normalizeScaledQuantity(0.99, "g")).toBe(0.99);
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { productCapacityUnit } from "@/lib/product-quantity";
 import type { IngredientRequirement } from "@/lib/types";
 import { preserveCurrentSelection } from "@/server/ai/graph";
 import { retrieveForIngredients } from "@/server/catalog/retrieval";
@@ -7,6 +8,49 @@ import { repairSelection, validateSelection } from "@/server/validation/selectio
 const requirement: IngredientRequirement = { key: "shrimp", displayName: { en: "shrimp", ru: "креветки" }, quantity: 250, unit: "g", required: true, searchTerms: ["shrimp", "prawns", "креветки"] };
 
 describe("server selection validation", () => {
+  it.each([
+    ["shrimp", "креветки", "g", "ml"],
+    ["whole milk", "молоко", "ml", "piece"],
+    ["free range eggs", "яйца", "piece", "g"],
+  ] as const)("only retrieves SKU capacities compatible with %s requirements", (nameEn, nameRu, unit, incompatibleUnit) => {
+    const compatible: IngredientRequirement = { key: nameEn.replaceAll(" ", "_"), displayName: { en: nameEn, ru: nameRu }, quantity: 1, unit, required: true, searchTerms: [nameEn, nameRu] };
+    const compatibleProducts = retrieveForIngredients([compatible], { allergies: [], excluded: [] }).groups[0].products;
+    expect(compatibleProducts.length).toBeGreaterThan(0);
+    expect(compatibleProducts.every((product) => productCapacityUnit(product) === unit)).toBe(true);
+    expect(retrieveForIngredients([{ ...compatible, unit: incompatibleUnit }], { allergies: [], excluded: [] }).groups[0].products).toHaveLength(0);
+  });
+
+  it("keeps piece requirements and piece-pack capacities in the same unit", () => {
+    const avocado: IngredientRequirement = { key: "avocado", displayName: { en: "ripe avocado", ru: "спелый авокадо" }, quantity: 1, unit: "piece", required: true, searchTerms: ["avocado", "авокадо"] };
+    const { groups } = retrieveForIngredients([avocado], { allergies: [], excluded: [] });
+    expect(groups[0].products.length).toBeGreaterThan(0);
+    expect(groups[0].products.every((product) => productCapacityUnit(product) === "piece")).toBe(true);
+    const repaired = repairSelection({ selectedItems: [], unresolvedIngredients: [avocado.key], requiresFallback: true }, [avocado], groups, { allergies: [], excluded: [] });
+    expect(repaired.selectedItems).toHaveLength(1);
+    expect(repaired.selectedItems[0].quantity).toBe(1);
+    expect(repaired.unresolvedIngredients).toHaveLength(0);
+    expect(validateSelection(repaired, [avocado], groups, { allergies: [], excluded: [] }).valid).toBe(true);
+  });
+
+  it("fails closed instead of dividing grams by pieces", () => {
+    const pieceRequirement: IngredientRequirement = { key: "avocado", displayName: { en: "ripe avocado", ru: "спелый авокадо" }, quantity: 1, unit: "piece", required: true, searchTerms: ["avocado", "авокадо"] };
+    const pieceGroup = retrieveForIngredients([pieceRequirement], { allergies: [], excluded: [] }).groups[0];
+    const product = pieceGroup.products[0];
+    const gramRequirement: IngredientRequirement = { ...pieceRequirement, quantity: 105, unit: "g" };
+    expect(retrieveForIngredients([gramRequirement], { allergies: [], excluded: [] }).groups[0].products).toHaveLength(0);
+
+    const incompatibleGroup = [{ ...pieceGroup, requiredQuantity: gramRequirement.quantity, unit: gramRequirement.unit }];
+    const proposed = { selectedItems: [{ productId: product.id, quantity: 9, ingredientKey: gramRequirement.key, confidence: .8, reason: "bad unit math" }], unresolvedIngredients: [], requiresFallback: false };
+    const validation = validateSelection(proposed, [gramRequirement], incompatibleGroup, { allergies: [], excluded: [] });
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some((error) => error.code === "unit_mismatch")).toBe(true);
+
+    const repaired = repairSelection(proposed, [gramRequirement], incompatibleGroup, { allergies: [], excluded: [] });
+    expect(repaired.selectedItems).toHaveLength(0);
+    expect(repaired.unresolvedIngredients).toEqual([gramRequirement.key]);
+    expect(repaired.requiresFallback).toBe(true);
+  });
+
   it("rejects an invented SKU", () => {
     const { groups } = retrieveForIngredients([requirement], { allergies: [], excluded: [] });
     const result = validateSelection({ selectedItems: [{ productId: "invented", quantity: 1, ingredientKey: "shrimp", confidence: 1, reason: "test" }], unresolvedIngredients: [], requiresFallback: false }, [requirement], groups, { allergies: [], excluded: [] });
