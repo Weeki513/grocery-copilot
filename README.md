@@ -2,7 +2,7 @@
 
 > An AI-native grocery shopping experience that turns natural-language meal requests into a validated, editable cart — with a live inspector showing how the agent makes each decision.
 
-**Live demo:** [Vercel demo — deployment URL to be added](#deployment-notes) · **Source:** [Weeki513/grocery-copilot](https://github.com/Weeki513/grocery-copilot) · **Docs:** [product spec](docs/product-spec.md) · [build log](docs/build-log.md)
+**Live demo:** [pivnev.design/grocery-copilot-demo](https://www.pivnev.design/grocery-copilot-demo) · **Source:** [Weeki513/grocery-copilot](https://github.com/Weeki513/grocery-copilot) · **Docs:** [product spec](docs/product-spec.md) · [build log](docs/build-log.md)
 
 Grocery Copilot is a portfolio-grade product experience combining product design, interaction design, AI orchestration, and deterministic backend systems. It is a complete grocery flow — catalog, assistant, editable selection, cart, and fictional checkout — rather than an LLM chat wrapper.
 
