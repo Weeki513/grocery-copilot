@@ -25,5 +25,5 @@ export function GroceryApp({ initialLocale, products, categories }: { initialLoc
   if (screen === "product") content = <ProductScreen/>;
   if (screen === "profile") content = <ProfileScreen/>;
   const inspectorActive = screen === "assistant" && assistantView === "chat";
-  return <div className="demo-shell"><section className="app-stage"><PhoneShell>{content}</PhoneShell></section><Inspector key={inspectorActive ? "assistant" : "default"} active={inspectorActive}/></div>;
+  return <div className="demo-shell"><section className="app-stage"><PhoneShell>{content}</PhoneShell><footer className="stage-footer"><a href="https://github.com/Weeki513/grocery-copilot" target="_blank" rel="noreferrer">GitHub repository</a><a href="https://pivnev.design" target="_blank" rel="noreferrer">pivnev.design</a></footer></section><Inspector key={inspectorActive ? "assistant" : "default"} active={inspectorActive}/></div>;
 }
